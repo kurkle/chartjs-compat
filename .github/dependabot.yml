@@ -7,6 +7,11 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: "development"
+    ignore:
+      # chart.js 4.6.2 advertises provenance, but the npm registry serves no attestation for it,
+      # so `npm audit signatures` fails. Remove once the registry serves it or a newer release exists.
+      - dependency-name: "chart.js"
+        versions: ["4.6.2"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
