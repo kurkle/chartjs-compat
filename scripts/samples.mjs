@@ -84,8 +84,10 @@ const idle = () => {
 }
 
 async function run(browser, library, sample, sprites) {
+  // UTC: the time scale samples format local times, and CI runs in UTC.
   const page = await browser.newPage({
     deviceScaleFactor: 1,
+    timezoneId: 'UTC',
     viewport: { height: 900, width: 1024 },
   })
   const steps = []
