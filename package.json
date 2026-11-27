@@ -1,0 +1,86 @@
+{
+  "author": "Jukka Kurkela <jukka.kurkela@gmail.com>",
+  "bugs": {
+    "url": "https://github.com/kurkle/chartjs-compat/issues"
+  },
+  "description": "Run Chart.js v2 code on Chart.js v4, with a migration warning for every old option",
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.14",
+    "@kurkle/configs": "^1.9.1",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-terser": "^1.0.0",
+    "@vitest/browser": "^5.0.0",
+    "@vitest/browser-playwright": "^5.0.0",
+    "@vitest/coverage-istanbul": "^5.0.0",
+    "chart.js": "^4.5.1",
+    "chart.js-v2": "npm:chart.js@2.9.4",
+    "chartjs-adapter-moment": "^1.0.1",
+    "chartjs-test-utils": "^1.1.2",
+    "jquery": "^3.8.0",
+    "moment": "^2.30.1",
+    "pixelmatch": "^7.1.0",
+    "playwright": "^1.63.0",
+    "pngjs": "^7.0.0",
+    "rollup": "^4.54.0",
+    "semantic-release": "^25.0.3",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.0"
+  },
+  "exports": {
+    "./v2": {
+      "import": {
+        "types": "./types/v2.d.ts",
+        "default": "./dist/chartjs-compat-v2.esm.js"
+      },
+      "require": {
+        "types": "./types/v2.d.cts",
+        "default": "./dist/chartjs-compat-v2.cjs"
+      },
+      "script": "./dist/chartjs-compat-v2.min.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/*",
+    "types/*.d.ts",
+    "types/*.d.cts"
+  ],
+  "homepage": "https://github.com/kurkle/chartjs-compat#readme",
+  "keywords": [
+    "chart.js",
+    "compatibility",
+    "migration",
+    "shim",
+    "v2"
+  ],
+  "license": "MIT",
+  "name": "chartjs-compat",
+  "peerDependencies": {
+    "chart.js": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kurkle/chartjs-compat.git"
+  },
+  "scripts": {
+    "build": "rollup -c && kurkle-build-cjs-types --dir types",
+    "compare": "node scripts/samples.mjs --compare",
+    "format": "biome check --write",
+    "lint": "biome check",
+    "precompare": "playwright install chromium",
+    "prepack": "npm run build",
+    "prepare": "git config core.hooksPath .githooks || true",
+    "prereferences:update": "playwright install chromium",
+    "pretest:samples": "playwright install chromium",
+    "pretest:unit": "playwright install chromium firefox",
+    "references:update": "node scripts/samples.mjs --update",
+    "test": "npm run test:unit && npm run test:samples && npm run test:pack",
+    "test:pack": "attw --pack . --profile node16 && publint --strict",
+    "test:samples": "node scripts/samples.mjs",
+    "test:unit": "vitest run --config vitest.browser.config.ts --coverage",
+    "typecheck": "tsc --noEmit -p tsconfig.tooling.json && tsc --noEmit -p test/types/"
+  },
+  "sideEffects": true,
+  "type": "module",
+  "version": "0.0.0-development"
+}

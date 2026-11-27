@@ -1,0 +1,11 @@
+# Build output
+dist/
+/coverage/
+
+# Generated from types/*.d.ts by kurkle-build-cjs-types
+types/*.d.cts
+
+# Sample suite output (compare sheets, failed renders)
+/test/output/
+
+node_modules/
