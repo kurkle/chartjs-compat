@@ -17,6 +17,19 @@ export function parseFontStyle(value) {
   }
 }
 
+/**
+ * Chart.defaults.global.defaultFontStyle as v2 read it: any bold-ish weight is 'bold', and the
+ * style is 'italic' or 'normal'. Element font styles (fontStyle, titleFontStyle, ...) go
+ * through parseFontStyle, which keeps the weight and 'oblique'; v2 differed the same way.
+ */
+export function parseGlobalFontStyle(value) {
+  const s = String(value)
+  return {
+    style: /italic/.test(s) ? 'italic' : 'normal',
+    weight: /bold|[1-9]00/.test(s) ? 'bold' : 'normal',
+  }
+}
+
 const keyOf = (prefix, name) => (prefix ? `${prefix}Font${name}` : `font${name}`)
 
 function takeFont(obj, prefix, fontKey, path) {

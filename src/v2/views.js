@@ -2,6 +2,7 @@
 // `chart.options.scales.yAxes[0].ticks.max` or `Chart.defaults.global.legend.position` keeps working.
 // Reads and writes of v2 paths are translated with the same functions that translate configs:
 // a write translates a one-key snippet and merges it; a read finds where a marker value lands.
+import { parseGlobalFontStyle } from './fonts.js'
 import { translateScale } from './scales.js'
 import { translateOptions } from './translate.js'
 import { getIn, isPlainObject, merge, setIn, warn } from './util.js'
@@ -272,13 +273,7 @@ function translateGlobalKey(out, k, value) {
     setIn(out, GLOBAL_FONT[k], value)
     warn(`Chart.defaults.global.${k} is now Chart.defaults.${GLOBAL_FONT[k].join('.')}`)
   } else if (k === 'defaultFontStyle') {
-    // As v2's own mapping: any bold-ish weight is bold, italic or normal style.
-    const s = String(value)
-    out.font = {
-      ...(out.font || {}),
-      style: /italic/.test(s) ? 'italic' : 'normal',
-      weight: /bold|[1-9]00/.test(s) ? 'bold' : 'normal',
-    }
+    out.font = { ...(out.font || {}), ...parseGlobalFontStyle(value) }
   } else if (k === 'defaultColor') {
     out.backgroundColor = value
     out.borderColor = value

@@ -75,6 +75,9 @@ export function hoist(obj, keys, target, from, to) {
   }
 }
 
+/** A scriptable option's value: the function's result, or the value itself. */
+export const resolve = (value, ctx) => (typeof value === 'function' ? value(ctx) : value)
+
 /** make(fn), once: a function the shim already wrapped is returned as it is. */
 export function wrapOnce(fn, make) {
   if (fn._v2Wrapped) return fn
