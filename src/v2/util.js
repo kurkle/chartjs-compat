@@ -75,6 +75,14 @@ export function hoist(obj, keys, target, from, to) {
   }
 }
 
+/** make(fn), once: a function the shim already wrapped is returned as it is. */
+export function wrapOnce(fn, make) {
+  if (fn._v2Wrapped) return fn
+  const wrapped = make(fn)
+  wrapped._v2Wrapped = true
+  return wrapped
+}
+
 // A warning path can carry both names: 'options.scales.yAxes[0]\u0000options.scales.y'.
 export const op = (p) => String(p).split('\u0000')[0]
 export const np = (p) => {
