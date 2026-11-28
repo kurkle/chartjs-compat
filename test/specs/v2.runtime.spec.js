@@ -112,8 +112,8 @@ describe('v2 runtime', () => {
     config.options.plugins = { probe: { a: 1 } }
     config.plugins = [
       {
-        afterDraw: (chart, easing, options) => calls.push(['afterDraw', easing, options.a]),
-        afterInit: (chart, options) => calls.push(['afterInit', options.a]),
+        afterDraw: (_chart, easing, options) => calls.push(['afterDraw', easing, options.a]),
+        afterInit: (_chart, options) => calls.push(['afterInit', options.a]),
         id: 'probe',
       },
     ]
@@ -194,7 +194,7 @@ describe('v2 runtime', () => {
 
   it('registers v2 plugins through Chart.plugins', () => {
     const seen = []
-    const plugin = { beforeInit: (chart, options) => seen.push(options) }
+    const plugin = { beforeInit: (_chart, options) => seen.push(options) }
     Chart.plugins.register(plugin)
     create(lineConfig())
     Chart.plugins.unregister(Chart.plugins.getAll().find((p) => p.beforeInit && seen.length))

@@ -65,6 +65,16 @@ export function move(obj, from, to, path) {
   return true
 }
 
+/** Moves obj[k] to target[k] for each key present, warning `${from}.${k} is now ${to}.${k}`. */
+export function hoist(obj, keys, target, from, to) {
+  for (const k of keys) {
+    if (!(k in obj)) continue
+    target[k] = obj[k]
+    delete obj[k]
+    warn(`${from}.${k} is now ${to}.${k}`)
+  }
+}
+
 // A warning path can carry both names: 'options.scales.yAxes[0]\u0000options.scales.y'.
 export const op = (p) => String(p).split('\u0000')[0]
 export const np = (p) => {

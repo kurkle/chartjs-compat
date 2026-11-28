@@ -20,14 +20,10 @@ export interface UpgradeResult {
  * exposes the v2 instance and static members. The v2 members are not typed.
  */
 declare class Chart extends ChartJS {
-  // biome-ignore lint/suspicious/noExplicitAny: v2 code passes untyped canvases, contexts and jQuery objects.
   constructor(item: any, config: V2ChartConfiguration)
-  // biome-ignore lint/suspicious/noExplicitAny: the v2 statics (Chart.defaults.global, Chart.plugins, ...) are untyped.
   static [key: string]: any
   /** Chart.js v4 defaults plus the v2 aliases (`global`, `scale.ticks.*`, `line`, `bar`, ...). */
-  // biome-ignore lint/suspicious/noExplicitAny: the v2 aliases on the defaults are untyped.
   static readonly defaults: typeof ChartJS.defaults & { [key: string]: any };
-  // biome-ignore lint/suspicious/noExplicitAny: the v2 instance members (generateLegend, getElementAtEvent, ...) are untyped.
   [key: string]: any
 }
 

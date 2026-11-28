@@ -84,7 +84,7 @@ describe('v2 callbacks', () => {
         tooltips: {
           callbacks: {
             footer: (items) => items.map((i) => i.value).join('+'),
-            labelColor: (item, c) => {
+            labelColor: (_item, c) => {
               seen.chart = c
               return { backgroundColor: 'blue', borderColor: 'red' }
             },
@@ -157,7 +157,7 @@ describe('v2 callbacks', () => {
       data: data(),
       options: {
         scales: {
-          yAxes: [{ afterBuildTicks: (scale, ticks) => ticks.filter((t) => t % 1 === 0) }],
+          yAxes: [{ afterBuildTicks: (_scale, ticks) => ticks.filter((t) => t % 1 === 0) }],
         },
       },
       type: 'line',
