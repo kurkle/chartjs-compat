@@ -82,6 +82,26 @@ describe('v2 edge cases', () => {
     expect(x.options.ticks.setContext(x.getContext(0)).color).toBeUndefined()
   })
 
+  it('gives ticks without a major/minor color the v2 default color', () => {
+    const chart = create({
+      data: data(),
+      options: { scales: { xAxes: [{ ticks: { major: { enabled: true, fontColor: 'red' } } }] } },
+      type: 'line',
+    })
+    const x = chart.scales.x
+    expect(x.options.ticks.setContext(x.getContext(0)).color).toBe('#666')
+  })
+
+  it('keeps the ids of each v2 axis array apart when options.scales is replaced', () => {
+    const chart = create({ data: data(), type: 'line' })
+    chart.options.scales = { xAxes: [{}, { id: 'x2', position: 'top' }], yAxes: [{}] }
+    expect(chart.options.scales.xAxes).toHaveLength(2)
+    expect(chart.options.scales.yAxes).toHaveLength(1)
+    chart.options.scales.xAxes[1].ticks.display = false
+    chart.update()
+    expect(chart.scales.x2.options.ticks.display).toBe(false)
+  })
+
   it('maps update({duration: 0}) to an update without animation', () => {
     const chart = create({ data: data(), type: 'line' })
     const update = vi.spyOn(Object.getPrototypeOf(Chart.prototype), 'update')

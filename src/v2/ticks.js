@@ -1,5 +1,6 @@
 // v2 tick behaviour that v4 dropped: the tick order of vertical scales and the darker zero line.
-const resolve = (value, ctx) => (typeof value === 'function' ? value(ctx) : value)
+import { resolve } from './util.js'
+
 const isIndexScale = (scale) => scale.type === 'category' || scale.type === 'radialLinear'
 
 /**

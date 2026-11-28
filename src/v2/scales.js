@@ -1,9 +1,8 @@
 // v2 scale options -> v4: the xAxes / yAxes arrays, ticks, gridLines, scaleLabel and time.
 import { moveFonts, moveObjectFonts } from './fonts.js'
 import { v2TickIndex, zeroAware } from './ticks.js'
-import { clone, hoist, isPlainObject, move, np, op, sub, warn, wrapOnce } from './util.js'
+import { clone, hoist, isPlainObject, move, np, op, resolve, sub, warn, wrapOnce } from './util.js'
 
-const resolve = (value, ctx) => (typeof value === 'function' ? value(ctx) : value)
 const isTimeScale = (scale) => scale.type === 'time' || scale.type === 'timeseries'
 
 function formatTimeTick(scale, value, tick) {
@@ -74,6 +73,7 @@ function translateMajorMinor(t, path) {
   }
   if (hasColor) {
     const baseColor = t.color
+    // Unlike the font, a scriptable base color's result is used as it is, even undefined.
     t.color = (ctx) =>
       pick(ctx).color ?? (typeof baseColor === 'function' ? baseColor(ctx) : (baseColor ?? '#666'))
   }
