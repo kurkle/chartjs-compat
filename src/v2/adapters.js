@@ -3,49 +3,50 @@ export const env = { toFont: (f) => f || {} }
 
 const isLabelScale = (s) =>
   s && (s.type === 'category' || s.type === 'time' || s.type === 'timeseries')
+const isRadial = (meta, parsed) =>
+  !!meta.rAxisID || (typeof parsed === 'object' && 'r' in parsed && !('x' in parsed))
+
+/** v2 xLabel / yLabel: the label for category and time scales, the number for the others. */
+function axisLabel(chart, id, parsed, axis) {
+  const s = id && chart.scales[id]
+  if (!s) return ''
+  return isLabelScale(s) ? s.getLabelForValue(parsed[axis]) : parsed[axis]
+}
+
+function v2Labels(item, meta, parsed) {
+  if (isRadial(meta, parsed)) return { xLabel: item.label, yLabel: parsed.r }
+  if (typeof parsed === 'number') return { xLabel: '', yLabel: '' }
+  return {
+    xLabel: axisLabel(item.chart, meta.xAxisID, parsed, 'x'),
+    yLabel: axisLabel(item.chart, meta.yAxisID, parsed, 'y'),
+  }
+}
+
+/** v2 value: the value axis label, unformatted for numbers ("2000", not "2,000"). */
+function v2Value(item, meta, parsed, labels) {
+  if (typeof parsed === 'number') return String(item.raw)
+  if (isRadial(meta, parsed)) return String(parsed.r)
+  return String(meta.indexAxis === 'y' ? labels.xLabel : labels.yLabel)
+}
 
 /** v4 TooltipItem -> v2 tooltipItem {xLabel, yLabel, label, value, index, datasetIndex, x, y}. */
 export function toV2TooltipItem(item) {
   if (!item || item._v2) return item
-  const { chart, datasetIndex, dataIndex, element } = item
   const parsed = item.parsed ?? {}
-  const meta = chart.getDatasetMeta(datasetIndex)
-  const label = (id, axis) => {
-    const s = id && chart.scales[id]
-    if (!s) return ''
-    return isLabelScale(s) ? s.getLabelForValue(parsed[axis]) : parsed[axis]
-  }
-  let xLabel
-  let yLabel
-  if (meta.rAxisID || (parsed && typeof parsed === 'object' && 'r' in parsed && !('x' in parsed))) {
-    xLabel = item.label
-    yLabel = parsed.r
-  } else if (typeof parsed === 'number') {
-    xLabel = ''
-    yLabel = ''
-  } else {
-    xLabel = label(meta.xAxisID, 'x')
-    yLabel = label(meta.yAxisID, 'y')
-  }
-  const pos = element?.tooltipPosition ? element.tooltipPosition(true) : {}
-  // v2 value: the value axis label, unformatted for numbers ("2000", not "2,000")
-  let value
-  if (typeof parsed === 'number') value = String(item.raw)
-  else if (meta.rAxisID || ('r' in parsed && !('x' in parsed))) value = String(parsed.r)
-  else value = String(meta.indexAxis === 'y' ? xLabel : yLabel)
-  const v2 = Object.create(item)
-  Object.assign(v2, {
+  const meta = item.chart.getDatasetMeta(item.datasetIndex)
+  const labels = v2Labels(item, meta, parsed)
+  const pos = item.element?.tooltipPosition ? item.element.tooltipPosition(true) : {}
+  return Object.assign(Object.create(item), {
     _v2: true,
-    datasetIndex,
-    index: dataIndex,
+    datasetIndex: item.datasetIndex,
+    index: item.dataIndex,
     label: item.label,
-    value,
+    value: v2Value(item, meta, parsed, labels),
     x: pos.x,
-    xLabel,
+    xLabel: labels.xLabel,
     y: pos.y,
-    yLabel,
+    yLabel: labels.yLabel,
   })
-  return v2
 }
 
 /** v4 {element, datasetIndex, index} -> v2 element with _index / _datasetIndex / _chart / _model. */

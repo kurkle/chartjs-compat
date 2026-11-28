@@ -1,10 +1,11 @@
 // Installs the v2 API on top of a v4 Chart: a Chart subclass that translates configs,
 // the v2 instance methods, and the v2 statics (Chart.defaults.global, Chart.plugins, Chart.Line, ...).
-
 import { env, toV2Element } from './adapters.js'
+import { translatePlugin } from './callbacks.js'
 import { applyV2Defaults } from './defaults.js'
-import { translateDataset, translatePlugin, translateScale, upgradeConfig } from './translate.js'
-import { isPlainObject, merge, warn } from './util.js'
+import { translateScale } from './scales.js'
+import { translateDataset, upgradeConfig } from './translate.js'
+import { isPlainObject, merge, setIn, warn } from './util.js'
 import { globalDefaultsView, optionsView, typeDefaultsView } from './views.js'
 
 const V2_TYPES = [
@@ -18,38 +19,88 @@ const V2_TYPES = [
   'bubble',
   'scatter',
 ]
+const ROUND_TYPES = ['doughnut', 'pie', 'polarArea']
 
+/** The v4 scale ids of the v2 xAxes / yAxes arrays, in array order. */
 function axisIdsOf(v2options, ids) {
   const out = {}
-  const scales = v2options?.scales
   for (const key of ['xAxes', 'yAxes']) {
-    const list = scales?.[key]
+    const list = v2options?.scales?.[key]
     if (Array.isArray(list))
       out[key] = list.map((a, i) => ids[a?.id || `${key[0]}-axis-${i}`] || key[0])
   }
   return out
 }
 
+function legendItems(chart) {
+  const { datasets = [], labels = [] } = chart.data
+  if (!ROUND_TYPES.includes(chart.config.type)) {
+    return datasets.map((ds) => ({ color: ds.backgroundColor, label: ds.label }))
+  }
+  const first = datasets[0]
+  if (!first) return []
+  const colors = [].concat(first.backgroundColor)
+  return first.data.map((_, i) => ({ color: colors[i], label: labels[i] }))
+}
+
+/** The HTML legend of v2's default legendCallback. */
 function defaultLegendHtml(chart) {
   const ul = document.createElement('ul')
   ul.setAttribute('class', `${chart.id}-legend`)
-  const { datasets = [], labels = [] } = chart.data
-  const round = ['doughnut', 'pie', 'polarArea'].includes(chart.config.type)
-  const items = round
-    ? datasets[0]
-      ? datasets[0].data.map((_, i) => ({
-          color: [].concat(datasets[0].backgroundColor)[i],
-          label: labels[i],
-        }))
-      : []
-    : datasets.map((ds) => ({ color: ds.backgroundColor, label: ds.label }))
-  for (const it of items) {
+  for (const item of legendItems(chart)) {
     const li = ul.appendChild(document.createElement('li'))
     const span = li.appendChild(document.createElement('span'))
-    span.style.backgroundColor = it.color
-    if (it.label) li.appendChild(document.createTextNode(it.label))
+    span.style.backgroundColor = item.color
+    if (item.label) li.appendChild(document.createTextNode(item.label))
   }
   return ul.outerHTML
+}
+
+/** An accessor that reads from the v4 element and becomes a plain property when written. */
+const ownAccessor = (name, get) => ({
+  configurable: true,
+  get,
+  set(v) {
+    Object.defineProperty(this, name, {
+      configurable: true,
+      enumerable: true,
+      value: v,
+      writable: true,
+    })
+  },
+})
+
+/** v2 elements carried their drawn state in _model / _view; v4 keeps it on the element and its options. */
+function modelView() {
+  return new Proxy(
+    {},
+    {
+      get: (_, k) => (k in this ? this[k] : this.options?.[k]),
+      set: (_, k, v) => {
+        this[k] = v
+        return true
+      },
+    }
+  )
+}
+
+const fromContext = (key) =>
+  function () {
+    return this.$context?.[key]
+  }
+
+/** v2 doughnut legends toggled meta.data[i].hidden. */
+const arcHidden = {
+  configurable: true,
+  get() {
+    const c = this.$context
+    return c ? !c.chart.getDataVisibility(c.dataIndex) : false
+  },
+  set(v) {
+    const c = this.$context
+    if (c && !!v !== !c.chart.getDataVisibility(c.dataIndex))
+      c.chart.toggleDataVisibility(c.dataIndex)
+  },
 }
 
 function patchElements(Chart) {
@@ -57,131 +108,103 @@ function patchElements(Chart) {
   const Arc = Chart.registry.getElement('arc')
   const Element = Arc && Object.getPrototypeOf(Arc)
   if (!Element || Object.hasOwn(Element.prototype, '_model')) return
-  // v2 elements carried their drawn state in _model / _view; v4 keeps it on the element and its options.
-  const model = function () {
-    return new Proxy(
-      {},
-      {
-        get: (_, k) => (k in this ? this[k] : this.options ? this.options[k] : undefined),
-        set: (_, k, v) => {
-          this[k] = v
-          return true
-        },
-      }
-    )
-  }
-  const own = (name, get) => ({
-    configurable: true,
-    get,
-    set(v) {
-      Object.defineProperty(this, name, {
-        configurable: true,
-        enumerable: true,
-        value: v,
-        writable: true,
-      })
-    },
-  })
   Object.defineProperties(Element.prototype, {
-    _chart: own('_chart', function () {
-      return this.$context ? this.$context.chart : undefined
-    }),
-    _datasetIndex: own('_datasetIndex', function () {
-      return this.$context ? this.$context.datasetIndex : undefined
-    }),
-    _index: own('_index', function () {
-      return this.$context ? this.$context.dataIndex : undefined
-    }),
-    _model: own('_model', model),
-    _view: own('_view', model),
+    _chart: ownAccessor('_chart', fromContext('chart')),
+    _datasetIndex: ownAccessor('_datasetIndex', fromContext('datasetIndex')),
+    _index: ownAccessor('_index', fromContext('dataIndex')),
+    _model: ownAccessor('_model', modelView),
+    _view: ownAccessor('_view', modelView),
   })
-  // v2 doughnut legends toggled meta.data[i].hidden
-  Object.defineProperty(Arc.prototype, 'hidden', {
-    configurable: true,
-    get() {
-      const c = this.$context
-      return c ? !c.chart.getDataVisibility(c.dataIndex) : false
-    },
-    set(v) {
-      const c = this.$context
-      if (c && !!v !== !c.chart.getDataVisibility(c.dataIndex))
-        c.chart.toggleDataVisibility(c.dataIndex)
-    },
-  })
+  Object.defineProperty(Arc.prototype, 'hidden', arcHidden)
 }
 
+function valueAtIndexOrDefault(value, index, defaultValue) {
+  if (value === undefined) return defaultValue
+  if (!Array.isArray(value)) return value
+  return value[index] === undefined ? defaultValue : value[index]
+}
+
+/** The v2 helper names that v4 dropped or renamed. */
 function patchHelpers(h) {
   if (!h) return
-  const add = (name, fn) => {
-    if (!(name in h)) h[name] = fn
+  const maximumSize = (el) =>
+    h.getMaximumSize ? h.getMaximumSize(el) : { height: el.clientHeight, width: el.clientWidth }
+  const added = {
+    callCallback: h.callback,
+    extend: Object.assign,
+    findIndex: (arr, fn, thisArg) => Array.prototype.findIndex.call(arr, fn, thisArg),
+    getMaximumHeight: (el) => maximumSize(el).height,
+    getMaximumWidth: (el) => maximumSize(el).width,
+    getValueAtIndexOrDefault: valueAtIndexOrDefault,
+    getValueOrDefault: h.valueOrDefault,
+    indexOf: (arr, item) => Array.prototype.indexOf.call(arr, item),
+    isArray: Array.isArray,
+    max: (arr) => Math.max(...arr),
+    min: (arr) => Math.min(...arr),
+    toDegrees: h.toDegrees,
+    toRadians: h.toRadians,
+    valueAtIndexOrDefault,
+    where: (arr, fn) => Array.prototype.filter.call(arr, fn),
   }
-  add('extend', Object.assign)
-  add('getValueOrDefault', h.valueOrDefault)
-  add('getValueAtIndexOrDefault', (v, i, d) =>
-    v === undefined ? d : Array.isArray(v) ? (v[i] === undefined ? d : v[i]) : v
-  )
-  add('valueAtIndexOrDefault', h.getValueAtIndexOrDefault)
-  add('callCallback', h.callback)
-  add('isArray', Array.isArray)
-  add('indexOf', (arr, item) => Array.prototype.indexOf.call(arr, item))
-  add('where', (arr, fn) => Array.prototype.filter.call(arr, fn))
-  add('findIndex', (arr, fn, thisArg) => Array.prototype.findIndex.call(arr, fn, thisArg))
-  add('min', (arr) => Math.min(...arr))
-  add('max', (arr) => Math.max(...arr))
-  add('toRadians', h.toRadians)
-  add('toDegrees', h.toDegrees)
-  add('getMaximumWidth', (el) => (h.getMaximumSize ? h.getMaximumSize(el).width : el.clientWidth))
-  add('getMaximumHeight', (el) =>
-    h.getMaximumSize ? h.getMaximumSize(el).height : el.clientHeight
-  )
-  if (!h.canvas) {
-    h.canvas = {
-      clear: (chart) => chart.clear(),
-      clipArea: h.clipArea,
-      drawPoint: h.drawPoint,
-      roundedRect: h.addRoundedRectPath,
-      unclipArea: h.unclipArea,
-    }
+  for (const [name, fn] of Object.entries(added)) if (!(name in h)) h[name] = fn
+  h.canvas = h.canvas || {
+    clear: (chart) => chart.clear(),
+    clipArea: h.clipArea,
+    drawPoint: h.drawPoint,
+    roundedRect: h.addRoundedRectPath,
+    unclipArea: h.unclipArea,
   }
 }
 
-/**
- * Installs the v2 API on a Chart.js v4 Chart and returns the v2-compatible Chart.
- * `helpers` is `chart.js/helpers` for the ESM build; the UMD build carries them as Chart.helpers.
- */
-export function install(Chart, { helpers = Chart.helpers } = {}) {
-  if (Chart.__v2compat) return Chart.__v2compat
-  env.toFont = helpers?.toFont || env.toFont
-  applyV2Defaults(Chart)
-  patchElements(Chart)
-  patchHelpers(helpers)
+/** v2 drew a new chart over an old one on the same canvas; v4 throws. */
+function releaseCanvas(Chart, item) {
+  const canvas = item?.length && typeof item !== 'string' ? item[0] : item
+  const existing = canvas && Chart.getChart(canvas)
+  if (existing) {
+    warn(
+      'A chart already used this canvas. v2 drew over it; v4 throws. The shim destroys the old chart — call chart.destroy() yourself.'
+    )
+    existing.destroy()
+  }
+  return canvas
+}
 
-  const states = new WeakMap()
+/** Translates the config in place and gives it the v2 view of its options. */
+function prepareConfig(config) {
+  const v2options = config.options
+  const result = upgradeConfig(config)
+  const state = {
+    axisIds: axisIdsOf(v2options, result.ids),
+    barOptsByScale: result.barOptsByScale,
+    ids: result.ids,
+    legendCallback: config.options.legendCallback,
+    v2type: result.v2type,
+  }
+  const translated = config.options
+  config.options = optionsView(() => translated, state)
+  state.configOptions = config.options
+  return state
+}
 
-  class ChartV2 extends Chart {
+/** v2 update(duration) / update({duration, lazy, easing}) as a v4 update mode. */
+function v4UpdateMode(mode) {
+  if (typeof mode === 'number') return mode === 0 ? 'none' : undefined
+  if (isPlainObject(mode)) return mode.duration === 0 ? 'none' : undefined
+  return mode
+}
+
+function elementsAt(chart, e, mode, intersect) {
+  return chart
+    .getElementsAtEventForMode(e, mode, { intersect }, false)
+    .map((el) => toV2Element(el, chart))
+}
+
+function createChartClass(Chart) {
+  return class ChartV2 extends Chart {
     constructor(item, config = {}) {
-      const canvas = item?.length && !(typeof item === 'string') ? item[0] : item
-      const existing = canvas && Chart.getChart(canvas)
-      if (existing) {
-        warn(
-          'A chart already used this canvas. v2 drew over it; v4 throws. The shim destroys the old chart — call chart.destroy() yourself.'
-        )
-        existing.destroy()
-      }
-      const v2options = config.options
-      const result = upgradeConfig(config)
-      const state = {
-        axisIds: axisIdsOf(v2options, result.ids),
-        barOptsByScale: result.barOptsByScale,
-        ids: result.ids,
-        legendCallback: config.options.legendCallback,
-        v2type: result.v2type,
-      }
-      const translated = config.options
-      config.options = optionsView(() => translated, state)
-      state.configOptions = config.options
+      const canvas = releaseCanvas(Chart, item)
+      const state = prepareConfig(config)
       super(canvas, config)
-      states.set(this, state)
       this._v2state = state
       this._aliasScales()
     }
@@ -200,9 +223,8 @@ export function install(Chart, { helpers = Chart.helpers } = {}) {
     set options(options) {
       const state = this._v2state
       if (state && options && !options.__v2view) {
-        const tmp = { options, type: state.v2type }
-        upgradeConfig(tmp)
-        const translated = tmp.options
+        const { config } = upgradeConfig({ options, type: state.v2type })
+        const translated = config.options
         options = optionsView(() => translated, state)
         state.configOptions = options
       }
@@ -215,37 +237,29 @@ export function install(Chart, { helpers = Chart.helpers } = {}) {
 
     update(mode) {
       const state = this._v2state
-      if (state) {
-        if (this.config.options && !this.config.options.__v2view) this.options = this.config.options
-        const datasets = this.data.datasets || []
-        for (let i = 0; i < datasets.length; i++)
-          translateDataset(datasets[i], state.ids, state.barOptsByScale, i)
-      }
-      if (typeof mode === 'number' || isPlainObject(mode)) {
-        const duration = typeof mode === 'number' ? mode : mode.duration
-        mode = duration === 0 ? 'none' : undefined
-      }
-      const r = super.update(mode)
+      if (state) this._translateChanges(state)
+      const r = super.update(v4UpdateMode(mode))
       if (state) this._aliasScales()
       return r
     }
 
-    render() {
-      return super.render()
+    /** Options replaced and datasets added since the last update. */
+    _translateChanges(state) {
+      if (this.config.options && !this.config.options.__v2view) this.options = this.config.options
+      const datasets = this.data.datasets || []
+      for (let i = 0; i < datasets.length; i++)
+        translateDataset(datasets[i], state.ids, state.barOptsByScale, i)
     }
 
+    /** v2 code reads chart.scales['x-axis-0']. */
     _aliasScales() {
-      // v2 code reads chart.scales['x-axis-0']
-      const ids = this._v2state.ids
-      for (const v2id of Object.keys(ids)) {
-        const id = ids[v2id]
-        if (v2id !== id && !(v2id in this.scales) && this.scales[id]) {
-          Object.defineProperty(this.scales, v2id, {
-            configurable: true,
-            enumerable: false,
-            get: () => this.scales[id],
-          })
-        }
+      for (const [v2id, id] of Object.entries(this._v2state.ids)) {
+        if (v2id === id || v2id in this.scales || !this.scales[id]) continue
+        Object.defineProperty(this.scales, v2id, {
+          configurable: true,
+          enumerable: false,
+          get: () => this.scales[id],
+        })
       }
     }
 
@@ -255,99 +269,84 @@ export function install(Chart, { helpers = Chart.helpers } = {}) {
     }
 
     getElementAtEvent(e) {
-      return this.getElementsAtEventForMode(e, 'nearest', { intersect: true }, false).map((el) =>
-        toV2Element(el, this)
-      )
+      return elementsAt(this, e, 'nearest', true)
     }
 
     getElementsAtEvent(e) {
-      return this.getElementsAtEventForMode(e, 'index', { intersect: true }, false).map((el) =>
-        toV2Element(el, this)
-      )
+      return elementsAt(this, e, 'index', true)
     }
 
     getElementsAtXAxis(e) {
-      return this.getElementsAtEventForMode(e, 'index', { intersect: false }, false).map((el) =>
-        toV2Element(el, this)
-      )
+      return elementsAt(this, e, 'index', false)
     }
 
     getDatasetAtEvent(e) {
-      return this.getElementsAtEventForMode(e, 'dataset', { intersect: true }, false).map((el) =>
-        toV2Element(el, this)
-      )
+      return elementsAt(this, e, 'dataset', true)
     }
   }
+}
 
-  // ---- statics ----
+const alias = (obj, key, get, set) =>
+  Object.defineProperty(obj, key, { configurable: true, enumerable: false, get, set })
+
+const SCALE_TICK_ALIASES = [
+  'beginAtZero',
+  'min',
+  'max',
+  'suggestedMin',
+  'suggestedMax',
+  'reverse',
+  'userCallback',
+  'fontColor',
+  'fontSize',
+  'fontFamily',
+  'fontStyle',
+]
+
+/** Chart.defaults.global, Chart.defaults.<type> and Chart.defaults.scale.ticks.beginAtZero and friends. */
+function installDefaultsAliases(Chart) {
   const defaults = Chart.defaults
   const globalView = globalDefaultsView(Chart)
-  Object.defineProperty(defaults, 'global', {
-    configurable: true,
-    enumerable: false,
-    get: () => globalView,
-  })
+  alias(defaults, 'global', () => globalView)
   for (const type of V2_TYPES) {
     if (type in defaults) continue
     const view = typeDefaultsView(Chart, type)
-    Object.defineProperty(defaults, type, {
-      configurable: true,
-      enumerable: false,
-      get: () => view,
-    })
+    alias(defaults, type, () => view)
   }
-  // Chart.defaults.scale.ticks.beginAtZero and friends
   const scaleAlias = (obj, keys, prefix) => {
     for (const k of keys) {
       if (k in obj) continue
-      Object.defineProperty(obj, k, {
-        configurable: true,
-        enumerable: false,
-        get: () => undefined,
-        set: (v) => {
-          const snippet = {}
-          let o = snippet
-          for (const p of prefix) o = o[p] = {}
-          o[k] = v
+      alias(
+        obj,
+        k,
+        () => undefined,
+        (v) => {
+          const snippet = setIn({}, [...prefix, k], v)
           merge(defaults.scale, translateScale(snippet, 'Chart.defaults.scale').scale)
-        },
-      })
+        }
+      )
     }
   }
   scaleAlias(defaults.scale, ['gridLines', 'scaleLabel'], [])
-  scaleAlias(
-    defaults.scale.ticks,
-    [
-      'beginAtZero',
-      'min',
-      'max',
-      'suggestedMin',
-      'suggestedMax',
-      'reverse',
-      'userCallback',
-      'fontColor',
-      'fontSize',
-      'fontFamily',
-      'fontStyle',
-    ],
-    ['ticks']
-  )
+  scaleAlias(defaults.scale.ticks, SCALE_TICK_ALIASES, ['ticks'])
+}
 
-  const register = (p) => {
-    for (const plugin of [].concat(p)) Chart.register(translatePlugin(plugin))
-  }
+/** Chart.plugins / Chart.pluginService and Chart.scaleService. */
+function installServices(Chart, ChartV2) {
+  const defaults = Chart.defaults
   const pluginService = {
     clear: () => warn('Chart.plugins.clear() has no v4 equivalent'),
     count: () => Object.keys(Chart.registry.plugins.items).length,
     getAll: () => Object.values(Chart.registry.plugins.items),
-    register,
+    register: (p) => {
+      for (const plugin of [].concat(p)) Chart.register(translatePlugin(plugin))
+    },
     unregister: (p) => {
       for (const plugin of [].concat(p)) Chart.unregister(plugin)
     },
   }
   ChartV2.plugins = pluginService
   ChartV2.pluginService = pluginService
-
   ChartV2.scaleService = {
     getScaleDefaults: (type) => defaults.scales[type],
     updateScaleDefaults(type, v2) {
@@ -355,7 +354,10 @@ export function install(Chart, { helpers = Chart.helpers } = {}) {
       merge(defaults.scales[type], translateScale(v2, `Chart.scaleService(${type})`).scale)
     },
   }
+}
 
+/** Chart.Line(ctx, config) and the other v2 chart constructors. */
+function installConstructors(ChartV2) {
   for (const type of V2_TYPES) {
     const name = type[0].toUpperCase() + type.slice(1)
     ChartV2[name] = (ctx, config) => {
@@ -364,26 +366,44 @@ export function install(Chart, { helpers = Chart.helpers } = {}) {
       return new ChartV2(ctx, config)
     }
   }
+}
 
+/** Chart.Tooltip.positioners, whose functions v2 called with v2 elements. */
+function installPositioners(Chart, ChartV2) {
+  const tooltipPlugin = Chart.registry.plugins.get('tooltip')
+  if (!tooltipPlugin || Chart.Tooltip) return
+  const positioners = new Proxy(tooltipPlugin.positioners, {
+    set(target, k, fn) {
+      target[k] = function (items, pos) {
+        return fn.call(
+          this,
+          items.map((el) => toV2Element(el, this.chart)),
+          pos
+        )
+      }
+      return true
+    },
+  })
+  ChartV2.Tooltip = { positioners }
+}
+
+/**
+ * Installs the v2 API on a Chart.js v4 Chart and returns the v2-compatible Chart.
+ * `helpers` is `chart.js/helpers` for the ESM build; the UMD build carries them as Chart.helpers.
+ */
+export function install(Chart, { helpers = Chart.helpers } = {}) {
+  if (Chart.__v2compat) return Chart.__v2compat
+  env.toFont = helpers?.toFont || env.toFont
+  applyV2Defaults(Chart)
+  patchElements(Chart)
+  patchHelpers(helpers)
+  const ChartV2 = createChartClass(Chart)
+  installDefaultsAliases(Chart)
+  installServices(Chart, ChartV2)
+  installConstructors(ChartV2)
+  installPositioners(Chart, ChartV2)
   if (!Chart.helpers && helpers) ChartV2.helpers = helpers
   ChartV2.platform = { disableCSSInjection: true }
-  const tooltipPlugin = Chart.registry.plugins.get('tooltip')
-  if (tooltipPlugin && !Chart.Tooltip) {
-    const positioners = new Proxy(tooltipPlugin.positioners, {
-      set(target, k, fn) {
-        target[k] = function (items, pos) {
-          return fn.call(
-            this,
-            items.map((el) => toV2Element(el, this.chart)),
-            pos
-          )
-        }
-        return true
-      },
-    })
-    ChartV2.Tooltip = { positioners }
-  }
-
   Chart.__v2compat = ChartV2
   ChartV2.__v2compat = ChartV2
   return ChartV2
