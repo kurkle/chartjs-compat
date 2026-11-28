@@ -164,7 +164,9 @@ export function translateDataset(ds, ids, barOptsByScale, index) {
   move(ds, 'steppedLine', 'stepped', path)
   useTimeParsing(ds, path)
   for (const k of ['xAxisID', 'yAxisID']) {
-    if (Object.hasOwn(ids, ds[k] ?? '')) ds[k] = ids[ds[k]]
+    // Own keys only, and only to an id that exists: `xAxes: []` leaves no axis to map to.
+    const mapped = Object.hasOwn(ids, ds[k] ?? '') ? ids[ds[k]] : undefined
+    if (mapped) ds[k] = mapped
   }
   applyBarOptions(ds, ids, barOptsByScale)
   Object.defineProperty(ds, '_v2Translated', { configurable: true, value: true })

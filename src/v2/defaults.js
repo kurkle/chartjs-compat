@@ -1,11 +1,11 @@
 // Puts back the v2 defaults that v3/v4 changed, so an untouched v2 config draws the same chart.
 import { toV2TooltipItem } from './adapters.js'
-import { zeroAware } from './scales.js'
+import { zeroAware } from './ticks.js'
 
 const clamp20 = (n) => Math.max(Math.min(n, 20), 0)
 
 /** v2 formatted numbers with toFixed (300000), v4 with Intl.NumberFormat (300,000). */
-export function formatLinearTick(value, _index, ticks) {
+function formatLinearTick(value, _index, ticks) {
   if (value === 0) return '0'
   const values = ticks.map((t) => t.value)
   let delta = values.length > 3 ? values[2] - values[1] : values[1] - values[0]
@@ -21,7 +21,7 @@ export function formatLinearTick(value, _index, ticks) {
 }
 
 /** v2 labelled log scales 1e+N, 2e+N, 5e+N and the first and last tick. */
-export function formatLogTick(value, index, ticks) {
+function formatLogTick(value, index, ticks) {
   if (value === 0) return '0'
   const remain = value / 10 ** Math.floor(Math.log10(value))
   const shown = [1, 2, 5].includes(remain) || index === 0 || index === ticks.length - 1

@@ -1,44 +1,10 @@
 // v2 scale options -> v4: the xAxes / yAxes arrays, ticks, gridLines, scaleLabel and time.
 import { moveFonts, moveObjectFonts } from './fonts.js'
-import { clone, hoist, isPlainObject, move, np, op, sub, warn } from './util.js'
+import { v2TickIndex, zeroAware } from './ticks.js'
+import { clone, hoist, isPlainObject, move, np, op, sub, warn, wrapOnce } from './util.js'
 
 const resolve = (value, ctx) => (typeof value === 'function' ? value(ctx) : value)
 const isTimeScale = (scale) => scale.type === 'time' || scale.type === 'timeseries'
-const isIndexScale = (scale) => scale.type === 'category' || scale.type === 'radialLinear'
-
-/**
- * v2 generated the ticks of vertical numeric scales top-down (and of reversed scales the other way),
- * v4 always bottom-up. Indexable tick and grid options follow the v2 order through this index.
- */
-export function v2TickIndex(ctx) {
-  const scale = ctx?.scale
-  if (!scale || typeof ctx.index !== 'number' || isIndexScale(scale)) return ctx?.index
-  const n = scale.ticks ? scale.ticks.length : 0
-  const reversed = !scale.isHorizontal() !== !!scale.options.reverse
-  return reversed && n ? n - 1 - ctx.index : ctx.index
-}
-
-function isZeroLine(ctx) {
-  const scale = ctx?.scale
-  return !!scale && ctx.tick?.value === 0 && !isIndexScale(scale) && !scale.options.offset
-}
-
-/** A scriptable value that draws the v2 zero line on top of the normal grid line value. */
-export function zeroAware(base, zero) {
-  const pick = (value, ctx) => {
-    if (Array.isArray(value)) return value[(v2TickIndex(ctx) || 0) % value.length]
-    return resolve(value, ctx)
-  }
-  const fn = (ctx) => {
-    if (isZeroLine(ctx)) return pick(zero, ctx)
-    // Outside a tick (the border), v2 used the first grid line's value.
-    return ctx && ctx.type === 'tick'
-      ? pick(base, ctx)
-      : pick(base, { ...ctx, index: 0, scale: undefined })
-  }
-  fn._v2ZeroAware = true
-  return fn
-}
 
 function formatTimeTick(scale, value, tick) {
   const unit = tick?.major && scale._majorUnit ? scale._majorUnit : scale._unit
@@ -56,18 +22,14 @@ function v2TickArgs(scale, value, index, ticks) {
   return [value, i, i === index ? values : values.reverse()]
 }
 
-function wrapTickCallback(cb) {
-  if (cb._v2Wrapped) return cb
-  const wrapped = function (value, index, ticks) {
+function tickCallback(cb) {
+  return function (value, index, ticks) {
     return cb.apply(this, v2TickArgs(this, value, index, ticks))
   }
-  wrapped._v2Wrapped = true
-  return wrapped
 }
 
-function wrapAfterBuildTicks(cb) {
-  if (cb._v2Wrapped) return cb
-  const wrapped = function (scale) {
+function afterBuildTicks(cb) {
+  return function (scale) {
     // v2.9 passed tick objects for time scales and numbers for the others
     const r = cb.call(
       this,
@@ -76,8 +38,6 @@ function wrapAfterBuildTicks(cb) {
     )
     if (Array.isArray(r)) scale.ticks = r.map((v) => (typeof v === 'object' ? v : { value: v }))
   }
-  wrapped._v2Wrapped = true
-  return wrapped
 }
 
 const TICKS_TO_SCALE = ['min', 'max', 'suggestedMin', 'suggestedMax', 'beginAtZero', 'reverse']
@@ -114,7 +74,8 @@ function translateMajorMinor(t, path) {
   }
   if (hasColor) {
     const baseColor = t.color
-    t.color = (ctx) => pick(ctx).color ?? resolve(baseColor, ctx) ?? '#666'
+    t.color = (ctx) =>
+      pick(ctx).color ?? (typeof baseColor === 'function' ? baseColor(ctx) : (baseColor ?? '#666'))
   }
   if (isPlainObject(t.minor) && !Object.keys(t.minor).length) delete t.minor
 }
@@ -127,7 +88,7 @@ function translateTicks(t, scale, path) {
   move(t, 'unitStepSize', 'stepSize', ticksPath)
   translateBackdropPadding(t, path)
   moveFonts(t, '', 'color', 'font', ticksPath)
-  if (typeof t.callback === 'function') t.callback = wrapTickCallback(t.callback)
+  if (typeof t.callback === 'function') t.callback = wrapOnce(t.callback, tickCallback)
   translateMajorMinor(t, path)
 }
 
@@ -255,7 +216,7 @@ export function translateScale(v2, path) {
   if (isPlainObject(s.time)) translateTime(s, path)
   translateDistribution(s, path)
   if (typeof s.afterBuildTicks === 'function')
-    s.afterBuildTicks = wrapAfterBuildTicks(s.afterBuildTicks)
+    s.afterBuildTicks = wrapOnce(s.afterBuildTicks, afterBuildTicks)
   return { barOpts, scale: s }
 }
 
